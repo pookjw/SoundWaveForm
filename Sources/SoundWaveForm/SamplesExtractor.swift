@@ -128,23 +128,18 @@ public struct SamplesExtractor{
                 // By default the reader's timerange is set to CMTimeRangeMake(kCMTimeZero, kCMTimePositiveInfinity)
                 // So if duration == kCMTimePositiveInfinity we should use the asset duration
                 let duration:Double = (reader.timeRange.duration == positiveInfinity) ? Double(asset.duration.value) : Double(reader.timeRange.duration.value)
-                let timscale:Double = (reader.timeRange.duration == positiveInfinity) ? Double(asset.duration.timescale) :Double(reader.timeRange.start.timescale)
+                let timscale:Double = (reader.timeRange.duration == positiveInfinity) ? Double(asset.duration.timescale) :Double(reader.timeRange.duration.timescale)
 
                 let numOfTotalSamples = (asbd.pointee.mSampleRate) * duration / timscale
 
-                var channelCount = 1
-
-                let formatDesc = track.formatDescriptions
-                for item in formatDesc {
-                    guard let fmtDesc = CMAudioFormatDescriptionGetStreamBasicDescription(item as! CMAudioFormatDescription) else { continue }
-                    channelCount = Int(fmtDesc.pointee.mChannelsPerFrame)
-                }
+                let channelCount = Int(asbd.pointee.mChannelsPerFrame)
 
                 let samplesPerPixel = Int(max(1,  Double(channelCount) * numOfTotalSamples / Double(desiredNumberOfSamples)))
                 let filter = [Float](repeating: 1.0 / Float(samplesPerPixel), count:samplesPerPixel)
 
                 var outputSamples = [Float]()
                 var sampleBuffer = Data()
+                var sampleBufferSize = 0
 
                 // 16-bit samples
                 reader.startReading()
@@ -161,20 +156,26 @@ public struct SamplesExtractor{
                     var readBufferPointer: UnsafeMutablePointer<Int8>?
                     CMBlockBufferGetDataPointer(readBuffer, 0, &readBufferLength, nil, &readBufferPointer)
                     sampleBuffer.append(UnsafeBufferPointer(start: readBufferPointer, count: readBufferLength))
+                    sampleBufferSize += readBufferLength
                     CMSampleBufferInvalidate(readSampleBuffer)
                     #else
                     var readBufferPointer: UnsafeMutablePointer<Int8>?
                     CMBlockBufferGetDataPointer(readBuffer, atOffset: 0, lengthAtOffsetOut: &readBufferLength, totalLengthOut: nil, dataPointerOut: &readBufferPointer)
                     sampleBuffer.append(UnsafeBufferPointer(start: readBufferPointer, count: readBufferLength))
+                    sampleBufferSize += readBufferLength
                     CMSampleBufferInvalidate(readSampleBuffer)
                     #endif
-                    let totalSamples = sampleBuffer.count / MemoryLayout<Int16>.size
+                    
+                    let totalSamples = sampleBufferSize * MemoryLayout<Int8>.size / MemoryLayout<Int16>.size
                     let downSampledLength = (totalSamples / samplesPerPixel)
                     let samplesToProcess = downSampledLength * samplesPerPixel
 
-                    guard samplesToProcess > 0 else { continue }
+                    guard samplesToProcess > 0 else {
+                        continue
+                    }
 
                     self._processSamples(fromData: &sampleBuffer,
+                                         validDataSize: &sampleBufferSize,
                                          sampleMax: &sampleMax,
                                          outputSamples: &outputSamples,
                                          samplesToProcess: samplesToProcess,
@@ -193,6 +194,7 @@ public struct SamplesExtractor{
                     let filter = [Float](repeating: 1.0 / Float(samplesPerPixel), count: samplesPerPixel)
 
                     self._processSamples(fromData: &sampleBuffer,
+                                         validDataSize: &sampleBufferSize,
                                          sampleMax: &sampleMax,
                                          outputSamples: &outputSamples,
                                          samplesToProcess: samplesToProcess,
@@ -219,6 +221,7 @@ public struct SamplesExtractor{
     }
 
     private static func _processSamples( fromData sampleBuffer: inout Data,
+                                         validDataSize: inout Int,
                                          sampleMax: inout Float,
                                          outputSamples: inout [Float],
                                          samplesToProcess: Int,
@@ -259,6 +262,7 @@ public struct SamplesExtractor{
             }
             // Remove processed samples
             sampleBuffer.removeFirst(samplesToProcess * MemoryLayout<Int16>.size)
+            validDataSize -= samplesToProcess * MemoryLayout<Int16>.size
             outputSamples += downSampledData
         }
     }
