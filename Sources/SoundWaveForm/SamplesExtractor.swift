@@ -139,7 +139,6 @@ public struct SamplesExtractor{
 
                 var outputSamples = [Float]()
                 var sampleBuffer = Data()
-                var sampleBufferSize = 0
 
                 // 16-bit samples
                 reader.startReading()
@@ -162,12 +161,11 @@ public struct SamplesExtractor{
                     var readBufferPointer: UnsafeMutablePointer<Int8>?
                     CMBlockBufferGetDataPointer(readBuffer, atOffset: 0, lengthAtOffsetOut: &readBufferLength, totalLengthOut: nil, dataPointerOut: &readBufferPointer)
                     sampleBuffer.append(UnsafeBufferPointer(start: readBufferPointer, count: readBufferLength))
-                    sampleBufferSize += readBufferLength
                     CMSampleBufferInvalidate(readSampleBuffer)
                     #endif
                     
                     // 만약 전체 sample 개수가 5이고, downsampled가 2라면 length는 2가 되고 samplesToProcess도 2가 되며 나머지 1은 removeFirst에 의해 남아 있게 된다. 
-                    let totalSamples = sampleBufferSize * MemoryLayout<Int8>.size / MemoryLayout<Int16>.size
+                    let totalSamples = sampleBuffer.count / MemoryLayout<Int16>.size
                     let downSampledLength = (totalSamples / samplesPerPixel)
                     let samplesToProcess = downSampledLength * samplesPerPixel
 
@@ -176,7 +174,6 @@ public struct SamplesExtractor{
                     }
 
                     self._processSamples(fromData: &sampleBuffer,
-                                         validDataSize: &sampleBufferSize,
                                          sampleMax: &sampleMax,
                                          outputSamples: &outputSamples,
                                          samplesToProcess: samplesToProcess,
@@ -195,7 +192,6 @@ public struct SamplesExtractor{
                     let filter = [Float](repeating: 1.0 / Float(samplesPerPixel), count: samplesPerPixel)
 
                     self._processSamples(fromData: &sampleBuffer,
-                                         validDataSize: &sampleBufferSize,
                                          sampleMax: &sampleMax,
                                          outputSamples: &outputSamples,
                                          samplesToProcess: samplesToProcess,
@@ -222,7 +218,6 @@ public struct SamplesExtractor{
     }
 
     private static func _processSamples( fromData sampleBuffer: inout Data,
-                                         validDataSize: inout Int,
                                          sampleMax: inout Float,
                                          outputSamples: inout [Float],
                                          samplesToProcess: Int,
@@ -263,7 +258,6 @@ public struct SamplesExtractor{
             }
             // Remove processed samples
             sampleBuffer.removeFirst(samplesToProcess * MemoryLayout<Int16>.size)
-            validDataSize -= samplesToProcess * MemoryLayout<Int16>.size
             outputSamples += downSampledData
         }
     }
